@@ -1,194 +1,246 @@
+//compilar con -pthread
 #include <stdio.h>
 #include <pthread.h>
 #include <time.h>
 #include <stdlib.h>
 #include <unistd.h>
 
-#define BSIZE 10
+#define TAMFILA 50
 #define NCAJEROS 8
-
-int elementos[BSIZE];
+//status 0=no disponible 1=disponible
 typedef struct{
-    int tipo;
-    int tiempo;
-} cliente;
+    int clienteId;
+    int tipoCliente;
+    int status;
+}cliente;
 
-int in = 0;
-int out = 0;
-int 
-int total = 0;
+cliente filaGeneral[TAMFILA];
+cliente filaEmpresarial[TAMFILA];
+int clientesEsperaG;
+int clientesEsperaE;
+int frenteG;
+int frenteE;
+int ids;
+int stop;
+int ocupados;
 
+pthread_mutex_t mutexIds = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutexFilaG = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutexFilaE = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t produceClienteG = PTHREAD_COND_INITIALIZER;
+pthread_cond_t produceClienteE = PTHREAD_COND_INITIALIZER;
+pthread_cond_t consume_1 = PTHREAD_COND_INITIALIZER;
+pthread_cond_t consume_2 = PTHREAD_COND_INITIALIZER;
 
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t consume_t = PTHREAD_COND_INITIALIZER;
-pthread_cond_t produce_t = PTHREAD_COND_INITIALIZER;
-
-void * cajeroG(int);
-void * cajeroE(int);
-void * gerente(pthread_t[]);
+void * generaCliente(void *);
+void * gerenteThr(void *);
+void * cajeroG(void *);
+void * cajeroE(void *);
 
 int main(int argc, const char * argv[]){
-    int threads[NCAJEROS];
-    int gerente;
+    ids = 0;
+    frenteG = 0;
+    frenteE = 0;
+    ocupados = 0;
+    stop = 0;
+    int geren,cG,cE;
+    pthread_t gerente, generaG, generaE;
+    int * temp =(int *) malloc(sizeof(int));
+    //genera hilos de creadores
+    *temp = 0;
+    cG = pthread_create(&generaG, NULL, generaCliente,(void *) temp);
+    if (cG){
+        printf("Error al iniciar creador de generales\n");
+    }
+    int * temp2 =(int *) malloc(sizeof(int));
+    *temp2 = 1;
+    cE = pthread_create(&generaE, NULL, generaCliente,(void *) temp2);
+    if (cE){
+        printf("Error al iniciar creador de Empresariales\n");
+    }
+    //genera hilos de cajeros
+    
     pthread_t cajeros[NCAJEROS];
-    pthread_t gerente;
-
-    for(int i = 0; i < NCAJEROS, i++){
+    int threads[NCAJEROS];
+    int chemps[8];
+    for(int i = 0; i < NCAJEROS; i++){
+        chemps[i] = i;
         if(i < 5)
-            threads[i] = pthread_create(&cajeros[i], NULL, cajeroG, i);
-        else
-            threads[i] = pthread_create(&cajeros[i], NULL, cajeroE, i);
+            threads[i] = pthread_create(&cajeros[i], NULL, cajeroG,(void*) (chemps + i));
+        else if(i>=5 && i<8){
+            threads[i] = pthread_create(&cajeros[i], NULL, cajeroE,(void*) (chemps + i));
+        }
         if(threads[i]){
             printf("Error al crear el cajero %d\n", i);
-            i--;
         }
     }
-
-    gerente = pthread_create(&gerente, NULL, gerente, &cajeros);
-    if (gerente){
-        printf("Error al crear el gerente\n");
-    }
-
-    //generar clientes
-    int generales = 100;
-    int empresariales = 50;
-    for(int i=0; i < 150; i++){
-        if(rand() % 2 == 0){
-            //general
-            rand() %
-        }else{
-            //empresarial
-        }
-    }
-
+    free(temp);
+    free(temp2);
     /* Esperar a que los hilos terminen */
-    pthread_join(gerente, NULL);
-    for(int i =0; i<NCAJEROS; i++){
-        pthread_join(threads[i], NULL);
+    pthread_join(generaE, NULL);
+    pthread_join(generaG, NULL);
+    for(int i =0; i< NCAJEROS; i++){
+        pthread_join(cajeros[i],NULL);
     }
-    
     return 0;
 }
-
-void * gerente(pthread cajeros[8]){
-    int i = 0;
-    while (i < N) {
-        /* Asumir que trabajan a diferentes velocidades */
-        usleep(rand() % 500);
-        
-        pthread_mutex_lock(&mutex);
-        
-        if (total < BSIZE) {
-            
-            /* Produce un elemento */
-            
-            elementos[in] = i;
-            
-            printf(" +++ Se produjo el elemento %d\n", elementos[in]);
-            
-            ++i;
-            
-            ++in;
-            in %= BSIZE;
-            ++total;
-            
-            if (total == 1) {
-                pthread_cond_signal(&consume_t);
+void * cajeroG(void * temp){
+    int * idCajero = (int *) temp;
+    int descanso = 0;
+    int cajerin=0;
+    while(stop != 2){
+        usleep(rand() % 50);
+        cliente usuario;
+        pthread_mutex_lock(&mutexFilaG);
+        usuario = filaGeneral[frenteG];
+        if(usuario.status == 1){
+            ocupados++;
+            filaGeneral[frenteG].status = 0;
+            frenteG = (frenteG +1) % TAMFILA;
+            descanso++;
+            clientesEsperaG--;
+            if(clientesEsperaG == 0){
+                pthread_cond_signal(&produceClienteG);
             }
+            printf("-Cajero %d atiende a cliente %d de tipo General*\n", *idCajero,usuario.clienteId);
+            //cajerin = (cajerin +1)%5;
+        }else{
+            pthread_cond_wait(&consume_1, &mutexFilaG);
         }
-        else {
-            /* El buffer está lleno, se va a dormir */
-            
-            printf("zzzzz El productor se va a dormir \n");
-            pthread_cond_wait(&produce_t, &mutex);
-            printf("uuuuu El productor se despertó \n");
+        pthread_mutex_unlock(&mutexFilaG);
+        sleep((rand() % 2) + 3); 
+        //sleep(1);
+        ocupados--;
+        if(descanso >= 5){
+            descanso = 0;
+            printf("Se suspende operacion\n");
+            sleep(3);
         }
-        
-        pthread_mutex_unlock(&mutex);
-   
     }
-    
     pthread_exit(NULL);
 }
-
-void * cajeroE(int espacio){
-    int i = 0;
-    
-    while (i < N) {
-        
-        /* Asumir que trabajan a diferentes velocidades */
-        
-        usleep(rand() % 500);
-        
-        pthread_mutex_lock(&mutex);
-        
-        if (total > 0)
-        {
-            /* Consume un elemento */
-            
-            printf(" --- Se consumió el elemento %d\n", elementos[out]);
-            
-            ++i;
-            ++out;
-            out %= BSIZE;
-            --total;
-            
-            if (total == BSIZE - 1) {
-                pthread_cond_signal(&produce_t);
+void * cajeroE(void * temp){
+    int * idCajero = (int *) temp;
+    int descanso = 0;
+    int cajerin = 0;
+    while(stop != 2){
+        usleep(rand() % 50);
+        cliente usuario;
+        pthread_mutex_lock(&mutexFilaE);
+        usuario = filaEmpresarial[frenteE];
+        if(usuario.status = 1){
+            filaEmpresarial[frenteE].status = 0;
+            frenteE = (frenteE +1) % TAMFILA;
+            descanso++;
+            clientesEsperaE--;
+            if(clientesEsperaE == 0){
+                pthread_cond_signal(&produceClienteE);
             }
-            
+        }else{
+            if(ocupados <= 4){
+                pthread_mutex_lock(&mutexFilaG);
+                usuario = filaGeneral[frenteG];
+                if(usuario.status == 1){
+                    filaGeneral[frenteG].status = 0;
+                    frenteG = (frenteG +1) % TAMFILA;
+                    descanso++;
+                    clientesEsperaG--;
+                    if(clientesEsperaG == 0){
+                        pthread_cond_signal(&produceClienteG);
+                    }
+                    pthread_mutex_unlock(&mutexFilaG);
+                }else{
+                    pthread_mutex_unlock(&mutexFilaG);
+                    pthread_cond_wait(&consume_2, &mutexFilaE);
+                }
+            }
+            else{
+                pthread_cond_wait(&consume_2, &mutexFilaE);
+            }
         }
-        else {
-            /* El buffer está vacío, se va a dormir */
-            printf("ZZZZZ El consumidor se va a dormir \n");
-            pthread_cond_wait(&consume_t, &mutex);
-            printf("UUUUU El consumidor se despertó \n");
+        pthread_mutex_unlock(&mutexFilaE);
+        if(usuario.status == 1){
+            printf("-Cajero %d atiende a cliente %d de tipo ", *idCajero,usuario.clienteId);
+            //cajerin = (cajerin + 1) % 3 + 6;
+            if(usuario.tipoCliente == 1){
+                printf("Empresarial ******\n");
+            }else{
+                printf("General******\n");
+            }
         }
-        
-        pthread_mutex_unlock(&mutex);
- 
+        if(descanso >= 5){
+            descanso = 0;
+            printf("Se suspenden operaciones\n");
+            sleep(3);
+        }
     }
-    
     pthread_exit(NULL);
 }
-
-void * cajeroG(int espacio){
+    //generar clientes
+void * generaCliente(void * temp){
+    //si es tipo 0 es general y 1 es empresarial
+    int *tipo = (int*) temp;
     int i = 0;
-    
-    while (i < N) {
-        
-        /* Asumir que trabajan a diferentes velocidades */
-        
-        usleep(rand() % 500);
-        
-        pthread_mutex_lock(&mutex);
-        
-        if (total > 0)
-        {
-            /* Consume un elemento */
-            
-            printf(" --- Se consumió el elemento %d\n", elementos[out]);
-            
-            ++i;
-            ++out;
-            out %= BSIZE;
-            --total;
-            
-            if (total == BSIZE - 1) {
-                pthread_cond_signal(&produce_t);
+    if(*tipo == 0){
+        //Maneja creación de generales
+        printf("Inicia creación de generador de Generales\n");
+        while(i<100){
+            usleep(rand() % 50);
+            pthread_mutex_lock(&mutexFilaG);
+            if(clientesEsperaG < TAMFILA){
+                cliente new;
+                
+                pthread_mutex_lock(&mutexIds);
+                new.clienteId = ids;
+                ids++;
+                pthread_mutex_unlock(&mutexIds);
+                new.status = 1;
+                new.tipoCliente = 0;
+                filaGeneral[i%TAMFILA] = new;
+                clientesEsperaG++;
+                i++;
+                printf("Llegó cliente con id:%d y de tipo General\n", new.clienteId);
+                if(clientesEsperaG == TAMFILA){
+                    pthread_cond_signal(&consume_1);
+                }
+                sleep((rand() % 17)+5); 
+                //sleep(2);
+            }else{
+                //en caso de que esté llena la fila
+                pthread_cond_wait(&produceClienteG, &mutexFilaG);
             }
-            
+            pthread_mutex_unlock(&mutexFilaG);
         }
-        else {
-            /* El buffer está vacío, se va a dormir */
-            printf("ZZZZZ El consumidor se va a dormir \n");
-            pthread_cond_wait(&consume_t, &mutex);
-            printf("UUUUU El consumidor se despertó \n");
+    }else{
+        //Maneja creación de empresariales
+        printf("Inicia creación de generador de Empresariales\n");
+        while(i<50){
+            usleep(rand() % 50);
+            pthread_mutex_lock(&mutexFilaE);
+            if(clientesEsperaE < TAMFILA){
+                cliente new;
+                pthread_mutex_lock(&mutexIds);
+                new.clienteId = ids;
+                ids++;
+                pthread_mutex_unlock(&mutexIds);
+                new.status = 1;
+                new.tipoCliente = 1;
+                filaEmpresarial[i%TAMFILA] = new;
+                clientesEsperaE++;
+                i++;
+                printf("Llegó cliente con id:%d y de tipo Empresarial\n", new.clienteId);
+                if(clientesEsperaG == TAMFILA){
+                    pthread_cond_signal(&consume_2);
+                }
+                sleep((rand() % 25)+9);
+                //sleep(5);
+            }else{
+                //en caso de que esté llena la fila
+                pthread_cond_wait(&produceClienteE, &mutexFilaE);
+            }
+            pthread_mutex_unlock(&mutexFilaE);
         }
-        
-        pthread_mutex_unlock(&mutex);
- 
     }
-    
+    stop ++;
     pthread_exit(NULL);
 }
